@@ -18,8 +18,8 @@ namespace InventoryManagement.GUI
         NumericUpDown numDonGia = new NumericUpDown();
         DataGridView dgv = new DataGridView();
 
-        List<ChiTietPhieuKhoDTO> chiTiet = new List<ChiTietPhieuKhoDTO>();
-        DataTable bangChiTiet = new DataTable();
+        List<ChiTietPhieuKhoDTO> danhSach = new List<ChiTietPhieuKhoDTO>();
+        DataTable bang = new DataTable();
 
         VatTuBUS vatTuBUS = new VatTuBUS();
         NhaCungCapBUS nccBUS = new NhaCungCapBUS();
@@ -27,18 +27,13 @@ namespace InventoryManagement.GUI
 
         public FormNhapXuatKho()
         {
-            Text = "LẬP PHIẾU NHẬP / XUẤT KHO";
+            Text = "Lập phiếu nhập xuất kho";
             Size = new Size(900, 600);
             StartPosition = FormStartPosition.CenterScreen;
 
             TaoGiaoDien();
-            TaoBangChiTiet();
-            TaiDuLieu();
-
-            cboLoai.SelectedIndexChanged += (s, e) =>
-            {
-                cboNCC.Enabled = cboLoai.Text == "NHAP";
-            };
+            TaoBang();
+            TaiDanhMuc();
         }
 
         void TaoGiaoDien()
@@ -48,10 +43,14 @@ namespace InventoryManagement.GUI
             cboLoai.DropDownStyle = ComboBoxStyle.DropDownList;
             cboLoai.Items.AddRange(new object[] { "NHAP", "XUAT" });
             cboLoai.SelectedIndex = 0;
+            cboLoai.SelectedIndexChanged += (s, e) =>
+            {
+                cboNCC.Enabled = cboLoai.Text == "NHAP";
+            };
             Controls.Add(cboLoai);
 
             ThemLabel("Nhà cung cấp:", 350, 20);
-            cboNCC.SetBounds(470, 20, 250, 28);
+            cboNCC.SetBounds(470, 20, 260, 28);
             cboNCC.DropDownStyle = ComboBoxStyle.DropDownList;
             Controls.Add(cboNCC);
 
@@ -65,7 +64,6 @@ namespace InventoryManagement.GUI
             numSoLuong.Minimum = 1;
             numSoLuong.Maximum = 100000000;
             numSoLuong.DecimalPlaces = 2;
-            numSoLuong.Value = 1;
             Controls.Add(numSoLuong);
 
             ThemLabel("Đơn giá:", 300, 115);
@@ -84,8 +82,8 @@ namespace InventoryManagement.GUI
             dgv.SetBounds(20, 165, 840, 300);
             dgv.ReadOnly = true;
             dgv.AllowUserToAddRows = false;
-            dgv.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgv.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            dgv.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             Controls.Add(dgv);
 
             Button btnXoa = new Button();
@@ -107,41 +105,43 @@ namespace InventoryManagement.GUI
             Controls.Add(btnDong);
         }
 
-        void ThemLabel(string noiDung, int x, int y)
+        void ThemLabel(string text, int x, int y)
         {
             Label lb = new Label();
-            lb.Text = noiDung;
+            lb.Text = text;
             lb.SetBounds(x, y, 110, 28);
             lb.TextAlign = ContentAlignment.MiddleLeft;
             Controls.Add(lb);
         }
 
-        void TaoBangChiTiet()
+        void TaoBang()
         {
-            bangChiTiet.Columns.Add("MaVatTu");
-            bangChiTiet.Columns.Add("TenVatTu");
-            bangChiTiet.Columns.Add("DVT");
-            bangChiTiet.Columns.Add("SoLuong");
-            bangChiTiet.Columns.Add("DonGia");
-            bangChiTiet.Columns.Add("ThanhTien");
-            dgv.DataSource = bangChiTiet;
+            bang.Columns.Add("Mã vật tư");
+            bang.Columns.Add("Tên vật tư");
+            bang.Columns.Add("Đơn vị tính");
+            bang.Columns.Add("Số lượng");
+            bang.Columns.Add("Đơn giá");
+            bang.Columns.Add("Thành tiền");
+            dgv.DataSource = bang;
         }
 
-        void TaiDuLieu()
+        void TaiDanhMuc()
         {
             try
             {
-                cboVatTu.DataSource = vatTuBUS.LayDanhSach();
+                DataTable dtVatTu = vatTuBUS.LayDanhSach();
+                cboVatTu.DataSource = dtVatTu;
                 cboVatTu.DisplayMember = "TenVatTu";
                 cboVatTu.ValueMember = "MaVatTu";
 
-                cboNCC.DataSource = nccBUS.LayDanhSach();
+                DataTable dtNCC = nccBUS.LayDanhSach();
+                cboNCC.DataSource = dtNCC;
                 cboNCC.DisplayMember = "TenNCC";
                 cboNCC.ValueMember = "MaNCC";
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Không tải được dữ liệu: " + ex.Message);
+                MessageBox.Show("Không tải được danh mục: " + ex.Message);
             }
         }
 
@@ -153,9 +153,12 @@ namespace InventoryManagement.GUI
                 return;
             }
 
-            string ma = cboVatTu.SelectedValue.ToString();
+            DataRowView dong = cboVatTu.SelectedItem as DataRowView;
+            if (dong == null) return;
 
-            foreach (ChiTietPhieuKhoDTO ct in chiTiet)
+            string ma = dong["MaVatTu"].ToString();
+
+            foreach (ChiTietPhieuKhoDTO ct in danhSach)
             {
                 if (ct.MaVatTu == ma)
                 {
@@ -164,23 +167,20 @@ namespace InventoryManagement.GUI
                 }
             }
 
-            DataRowView dong = cboVatTu.SelectedItem as DataRowView;
-            if (dong == null) return;
+            ChiTietPhieuKhoDTO chiTiet = new ChiTietPhieuKhoDTO();
+            chiTiet.MaVatTu = ma;
+            chiTiet.SoLuong = numSoLuong.Value;
+            chiTiet.DonGia = numDonGia.Value;
+            danhSach.Add(chiTiet);
 
-            ChiTietPhieuKhoDTO ctMoi = new ChiTietPhieuKhoDTO();
-            ctMoi.MaVatTu = ma;
-            ctMoi.SoLuong = numSoLuong.Value;
-            ctMoi.DonGia = numDonGia.Value;
-            chiTiet.Add(ctMoi);
+            decimal thanhTien = chiTiet.SoLuong * chiTiet.DonGia;
 
-            decimal thanhTien = ctMoi.SoLuong * ctMoi.DonGia;
-
-            bangChiTiet.Rows.Add(
+            bang.Rows.Add(
                 ma,
                 dong["TenVatTu"].ToString(),
                 dong["DVT"].ToString(),
-                ctMoi.SoLuong,
-                ctMoi.DonGia,
+                chiTiet.SoLuong,
+                chiTiet.DonGia,
                 thanhTien
             );
         }
@@ -192,16 +192,16 @@ namespace InventoryManagement.GUI
 
             int viTri = dgv.CurrentRow.Index;
 
-            if (viTri < chiTiet.Count)
+            if (viTri < danhSach.Count)
             {
-                chiTiet.RemoveAt(viTri);
-                bangChiTiet.Rows.RemoveAt(viTri);
+                danhSach.RemoveAt(viTri);
+                bang.Rows.RemoveAt(viTri);
             }
         }
 
         void LuuPhieu()
         {
-            if (chiTiet.Count == 0)
+            if (danhSach.Count == 0)
             {
                 MessageBox.Show("Hãy thêm ít nhất một vật tư.");
                 return;
@@ -209,10 +209,9 @@ namespace InventoryManagement.GUI
 
             try
             {
-                string loai = cboLoai.Text;
                 int? maNCC = null;
 
-                if (loai == "NHAP")
+                if (cboLoai.Text == "NHAP")
                 {
                     if (cboNCC.SelectedValue == null)
                     {
@@ -223,19 +222,20 @@ namespace InventoryManagement.GUI
                     maNCC = Convert.ToInt32(cboNCC.SelectedValue);
                 }
 
-                int maPhieu = phieuBUS.LuuPhieu(loai, maNCC, chiTiet);
-
-                MessageBox.Show(
-                    "Lưu phiếu thành công!\nMã phiếu: " + maPhieu,
-                    "Thông báo"
+                int maPhieu = phieuBUS.LuuPhieu(
+                    cboLoai.Text,
+                    maNCC,
+                    danhSach
                 );
 
-                chiTiet.Clear();
-                bangChiTiet.Rows.Clear();
+                MessageBox.Show("Lưu phiếu thành công. Mã phiếu: " + maPhieu);
+
+                danhSach.Clear();
+                bang.Rows.Clear();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Không thể lưu phiếu: " + ex.Message);
+                MessageBox.Show("Lỗi lưu phiếu: " + ex.Message);
             }
         }
     }
