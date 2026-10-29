@@ -1,23 +1,36 @@
 
 using System.Data;
 using MySql.Data.MySqlClient;
+using InventoryManagement.DTO;
 
 namespace InventoryManagement.DAL
 {
-    public class BaoCaoDAL
+    public class NhaCungCapDAL
     {
-        public DataTable CanhBaoTonKho(decimal nguong)
+        public DataTable LayDanhSach()
         {
             using (MySqlConnection conn = Database.GetConnection())
             {
-                string sql = @"
-                    SELECT MaVatTu, TenVatTu, DVT, SoLuongTon
-                    FROM VatTu
-                    WHERE SoLuongTon < @nguong";
+                MySqlDataAdapter da = new MySqlDataAdapter(
+                    "SELECT * FROM NhaCungCap", conn);
+
+                DataTable dt = new DataTable();
+                da.Fill(dt);
+                return dt;
+            }
+        }
+
+        public DataTable TimKiem(string tuKhoa)
+        {
+            using (MySqlConnection conn = Database.GetConnection())
+            {
+                string sql = @"SELECT * FROM NhaCungCap
+                    WHERE TenNCC LIKE @tk
+                       OR DienThoai LIKE @tk";
 
                 using (MySqlCommand cmd = new MySqlCommand(sql, conn))
                 {
-                    cmd.Parameters.AddWithValue("@nguong", nguong);
+                    cmd.Parameters.AddWithValue("@tk", "%" + tuKhoa + "%");
 
                     MySqlDataAdapter da = new MySqlDataAdapter(cmd);
                     DataTable dt = new DataTable();
@@ -27,33 +40,65 @@ namespace InventoryManagement.DAL
             }
         }
 
-        public decimal TongGiaTriTonKho()
+        public bool Them(NhaCungCapDTO ncc)
         {
             using (MySqlConnection conn = Database.GetConnection())
             {
-                string sql = @"
-                    SELECT COALESCE(
-                        SUM(v.SoLuongTon * COALESCE(g.DonGiaNhap, 0)), 0)
-                    FROM VatTu v
-                    LEFT JOIN (
-                        SELECT MaVatTu, DonGia AS DonGiaNhap
-                        FROM ChiTietPhieuKho ct
-                        JOIN PhieuKho p ON p.MaPhieu = ct.MaPhieu
-                        WHERE p.LoaiPhieu = 'NHAP'
-                          AND ct.MaPhieu = (
-                              SELECT MAX(ct2.MaPhieu)
-                              FROM ChiTietPhieuKho ct2
-                              JOIN PhieuKho p2
-                                  ON p2.MaPhieu = ct2.MaPhieu
-                              WHERE ct2.MaVatTu = ct.MaVatTu
-                                AND p2.LoaiPhieu = 'NHAP'
-                          )
-                    ) g ON v.MaVatTu = g.MaVatTu";
+                conn.Open();
+
+                string sql = @"INSERT INTO NhaCungCap
+                    (TenNCC, DienThoai, DiaChi)
+                    VALUES (@ten, @sdt, @dc)";
 
                 using (MySqlCommand cmd = new MySqlCommand(sql, conn))
                 {
-                    object kq = cmd.ExecuteScalar();
-                    return System.Convert.ToDecimal(kq);
+                    cmd.Parameters.AddWithValue("@ten", ncc.TenNCC);
+                    cmd.Parameters.AddWithValue("@sdt",
+                        string.IsNullOrWhiteSpace(ncc.DienThoai)
+                            ? DBNull.Value : ncc.DienThoai);
+                    cmd.Parameters.AddWithValue("@dc", ncc.DiaChi);
+
+                    return cmd.ExecuteNonQuery() > 0;
+                }
+            }
+        }
+
+        public bool Sua(NhaCungCapDTO ncc)
+        {
+            using (MySqlConnection conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                string sql = @"UPDATE NhaCungCap
+                    SET TenNCC=@ten, DienThoai=@sdt, DiaChi=@dc
+                    WHERE MaNCC=@ma";
+
+                using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@ma", ncc.MaNCC);
+                    cmd.Parameters.AddWithValue("@ten", ncc.TenNCC);
+                    cmd.Parameters.AddWithValue("@sdt",
+                        string.IsNullOrWhiteSpace(ncc.DienThoai)
+                            ? DBNull.Value : ncc.DienThoai);
+                    cmd.Parameters.AddWithValue("@dc", ncc.DiaChi);
+
+                    return cmd.ExecuteNonQuery() > 0;
+                }
+            }
+        }
+
+        public bool Xoa(int maNCC)
+        {
+            using (MySqlConnection conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                string sql = "DELETE FROM NhaCungCap WHERE MaNCC=@ma";
+
+                using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@ma", maNCC);
+                    return cmd.ExecuteNonQuery() > 0;
                 }
             }
         }
