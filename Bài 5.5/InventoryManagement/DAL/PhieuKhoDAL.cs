@@ -1,59 +1,166 @@
 
-using System.Data;
+using System;
+using System.Collections.Generic;
 using MySql.Data.MySqlClient;
+using InventoryManagement.DTO;
 
 namespace InventoryManagement.DAL
 {
-    public class BaoCaoDAL
+    public class PhieuKhoDAL
     {
-        public DataTable CanhBaoTonKho(decimal nguong)
+        public int LuuPhieu(
+            string loaiPhieu,
+            int? maNCC,
+            List<ChiTietPhieuKhoDTO> chiTiet)
         {
-            using (MySqlConnection conn = Database.GetConnection())
+            if (loaiPhieu != "NHAP" && loaiPhieu != "XUAT")
+                throw new Exception("Loại phiếu không hợp lệ.");
+
+            if (chiTiet == null || chiTiet.Count == 0)
+                throw new Exception("Phiếu phải có ít nhất một vật tư.");
+
+            foreach (ChiTietPhieuKhoDTO ct in chiTiet)
             {
-                string sql = @"
-                    SELECT MaVatTu, TenVatTu, DVT, SoLuongTon
-                    FROM VatTu
-                    WHERE SoLuongTon < @nguong";
-
-                using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                if (string.IsNullOrWhiteSpace(ct.MaVatTu) ||
+                    ct.SoLuong <= 0 || ct.DonGia < 0)
                 {
-                    cmd.Parameters.AddWithValue("@nguong", nguong);
-
-                    MySqlDataAdapter da = new MySqlDataAdapter(cmd);
-                    DataTable dt = new DataTable();
-                    da.Fill(dt);
-                    return dt;
+                    throw new Exception("Thông tin vật tư không hợp lệ.");
                 }
             }
-        }
 
-        public decimal TongGiaTriTonKho()
-        {
+            // Không cho một vật tư xuất hiện nhiều lần trong cùng phiếu
+            for (int i = 0; i < chiTiet.Count; i++)
+            {
+                for (int j = i + 1; j < chiTiet.Count; j++)
+                {
+                    if (chiTiet[i].MaVatTu == chiTiet[j].MaVatTu)
+                        throw new Exception("Vật tư bị trùng trong phiếu.");
+                }
+            }
+
             using (MySqlConnection conn = Database.GetConnection())
             {
-                string sql = @"
-                    SELECT COALESCE(
-                        SUM(v.SoLuongTon * COALESCE(g.DonGiaNhap, 0)), 0)
-                    FROM VatTu v
-                    LEFT JOIN (
-                        SELECT MaVatTu, DonGia AS DonGiaNhap
-                        FROM ChiTietPhieuKho ct
-                        JOIN PhieuKho p ON p.MaPhieu = ct.MaPhieu
-                        WHERE p.LoaiPhieu = 'NHAP'
-                          AND ct.MaPhieu = (
-                              SELECT MAX(ct2.MaPhieu)
-                              FROM ChiTietPhieuKho ct2
-                              JOIN PhieuKho p2
-                                  ON p2.MaPhieu = ct2.MaPhieu
-                              WHERE ct2.MaVatTu = ct.MaVatTu
-                                AND p2.LoaiPhieu = 'NHAP'
-                          )
-                    ) g ON v.MaVatTu = g.MaVatTu";
+                conn.Open();
 
-                using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                using (MySqlTransaction trans = conn.BeginTransaction())
                 {
-                    object kq = cmd.ExecuteScalar();
-                    return System.Convert.ToDecimal(kq);
+                    try
+                    {
+                        decimal tongTien = 0;
+
+                        foreach (ChiTietPhieuKhoDTO ct in chiTiet)
+                        {
+                            tongTien += ct.SoLuong * ct.DonGia;
+                        }
+
+                        string sqlPhieu = @"
+                            INSERT INTO PhieuKho
+                                (LoaiPhieu, MaNCC, TongTien)
+                            VALUES
+                                (@loai, @ncc, @tong)";
+
+                        int maPhieu;
+
+                        using (MySqlCommand cmd = new MySqlCommand(
+                            sqlPhieu, conn, trans))
+                        {
+                            cmd.Parameters.AddWithValue("@loai", loaiPhieu);
+                            cmd.Parameters.AddWithValue("@ncc",
+                                maNCC.HasValue
+                                    ? (object)maNCC.Value
+                                    : DBNull.Value);
+                            cmd.Parameters.AddWithValue("@tong", tongTien);
+
+                            cmd.ExecuteNonQuery();
+                            maPhieu = Convert.ToInt32(cmd.LastInsertedId);
+                        }
+
+                        foreach (ChiTietPhieuKhoDTO ct in chiTiet)
+                        {
+                            // Kiểm tra vật tư tồn tại và khóa dòng kho
+                            string sqlKiemTra =
+                                "SELECT SoLuongTon FROM VatTu " +
+                                "WHERE MaVatTu=@ma FOR UPDATE";
+
+                            using (MySqlCommand cmd = new MySqlCommand(
+                                sqlKiemTra, conn, trans))
+                            {
+                                cmd.Parameters.AddWithValue("@ma", ct.MaVatTu);
+
+                                object ton = cmd.ExecuteScalar();
+
+                                if (ton == null)
+                                    throw new Exception(
+                                        "Không tìm thấy vật tư: " + ct.MaVatTu);
+
+                                decimal soLuongTon = Convert.ToDecimal(ton);
+
+                                if (loaiPhieu == "XUAT" &&
+                                    soLuongTon < ct.SoLuong)
+                                {
+                                    throw new Exception(
+                                        "Không đủ hàng trong kho: " +
+                                        ct.MaVatTu);
+                                }
+                            }
+
+                            string sqlChiTiet = @"
+                                INSERT INTO ChiTietPhieuKho
+                                    (MaPhieu, MaVatTu, SoLuong, DonGia)
+                                VALUES
+                                    (@phieu, @ma, @sl, @gia)";
+
+                            using (MySqlCommand cmd = new MySqlCommand(
+                                sqlChiTiet, conn, trans))
+                            {
+                                cmd.Parameters.AddWithValue("@phieu", maPhieu);
+                                cmd.Parameters.AddWithValue("@ma", ct.MaVatTu);
+                                cmd.Parameters.AddWithValue("@sl", ct.SoLuong);
+                                cmd.Parameters.AddWithValue("@gia", ct.DonGia);
+                                cmd.ExecuteNonQuery();
+                            }
+
+                            string sqlCapNhat;
+
+                            if (loaiPhieu == "NHAP")
+                            {
+                                sqlCapNhat = @"
+                                    UPDATE VatTu
+                                    SET SoLuongTon = SoLuongTon + @sl
+                                    WHERE MaVatTu = @ma";
+                            }
+                            else
+                            {
+                                sqlCapNhat = @"
+                                    UPDATE VatTu
+                                    SET SoLuongTon = SoLuongTon - @sl
+                                    WHERE MaVatTu = @ma
+                                      AND SoLuongTon >= @sl";
+                            }
+
+                            using (MySqlCommand cmd = new MySqlCommand(
+                                sqlCapNhat, conn, trans))
+                            {
+                                cmd.Parameters.AddWithValue("@sl", ct.SoLuong);
+                                cmd.Parameters.AddWithValue("@ma", ct.MaVatTu);
+
+                                int soDong = cmd.ExecuteNonQuery();
+
+                                if (soDong == 0)
+                                    throw new Exception(
+                                        "Không đủ hàng trong kho: " +
+                                        ct.MaVatTu);
+                            }
+                        }
+
+                        trans.Commit();
+                        return maPhieu;
+                    }
+                    catch
+                    {
+                        trans.Rollback();
+                        throw;
+                    }
                 }
             }
         }
